@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shade Doctor — Patch Tool</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0D0D0D; --card: #181818; --raised: #222;
+    --accent: #E8C42A; --red: #CC1F1F; --red-b: #E53030;
+    --white: #F5F3EE; --muted: #8A8A8A; --border: rgba(255,255,255,.08);
+    --radius: 10px;
+  }
+  body { font-family: "DM Sans", system-ui, sans-serif; background: var(--bg); color: var(--white); min-height: 100vh; padding: 32px 20px 60px; }
+  h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: .02em; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: .85rem; margin-bottom: 28px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 16px; }
+  .card h2 { font-size: 1rem; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+  .badge { background: var(--red); color: #fff; border-radius: 50%; width: 24px; height: 24px; font-size: .75rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .badge.green { background: #2a7a2a; }
+  .badge.gold  { background: var(--accent); color: #111; }
+
+  /* Drop zone */
+  #dropzone {
+    border: 2.5px dashed rgba(232,196,42,.35);
+    border-radius: var(--radius);
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    background: rgba(232,196,42,.04);
+    margin-bottom: 24px;
+  }
+  #dropzone.dragover { border-color: var(--accent); background: rgba(232,196,42,.1); }
+  #dropzone .icon { font-size: 2.5rem; margin-bottom: 12px; }
+  #dropzone .title { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; }
+  #dropzone .hint { font-size: .82rem; color: var(--muted); }
+  #fileInput { display: none; }
+
+  /* Patch list */
+  .patch-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+  .patch-item {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 14px; font-size: .84rem;
+  }
+  .patch-item .pid { font-family: monospace; background: rgba(255,255,255,.08); padding: 2px 7px; border-radius: 4px; font-size: .75rem; color: var(--accent); flex-shrink: 0; }
+  .patch-item .plabel { flex: 1; }
+  .patch-item .status { font-size: .8rem; font-weight: 600; flex-shrink: 0; min-width: 80px; text-align: right; color: var(--muted); }
+  .patch-item .status.ok   { color: #4caf50; }
+  .patch-item .status.err  { color: var(--red-b); }
+  .patch-item .status.skip { color: var(--muted); }
+
+  /* Log */
+  #log {
+    background: #0a0a0a; border: 1px solid var(--border); border-radius: 6px;
+    padding: 16px; font-family: monospace; font-size: .78rem; line-height: 1.7;
+    max-height: 280px; overflow-y: auto; display: none; margin-top: 16px;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  #log .ok  { color: #4caf50; }
+  #log .err { color: #e53030; }
+  #log .inf { color: #8A8A8A; }
+  #log .hd  { color: var(--accent); font-weight: bold; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: none; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: .88rem; font-weight: 700;
+    padding: 12px 24px; transition: all .15s; letter-spacing: .02em;
+  }
+  .btn-primary { background: var(--accent); color: #111; }
+  .btn-primary:hover { background: #f0cc30; box-shadow: 0 4px 16px rgba(232,196,42,.35); }
+  .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-dl { background: #2a7a2a; color: #fff; }
+  .btn-dl:hover { background: #359e35; }
+  .btn-dl:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-secondary { background: transparent; border: 1px solid rgba(255,255,255,.15); color: var(--muted); }
+  .btn-secondary:hover { border-color: var(--white); color: var(--white); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  /* Summary bar */
+  #summaryBar {
+    display: none; background: rgba(232,196,42,.08); border: 1px solid rgba(232,196,42,.25);
+    border-radius: 8px; padding: 14px 18px; margin-top: 16px;
+    font-size: .88rem; display: none;
+  }
+  #summaryBar.show { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #summaryBar .sum-num { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
+  #summaryBar .sum-label { color: var(--muted); font-size: .8rem; }
+
+  /* Steps info */
+  .steps { display: flex; flex-direction: column; gap: 6px; }
+  .step { display: flex; gap: 10px; align-items: flex-start; font-size: .82rem; color: var(--muted); }
+  .step strong { color: var(--white); }
+  .step .snum { background: rgba(232,196,42,.15); color: var(--accent); border-radius: 4px; padding: 1px 7px; font-size: .72rem; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+
+  a { color: var(--accent); }
+  .max { max-width: 720px; margin: 0 auto; }
+  .tag { display: inline-block; background: rgba(204,31,31,.2); color: #ff7070; border-radius: 4px; padding: 1px 7px; font-size: .72rem; font-weight: 700; }
+  .tag.new { background: rgba(76,175,80,.2); color: #81c784; }
+</style>
+</head>
+<body>
+<div class="max">
+
+  <h1>🩺 Shade Doctor — Patch Tool</h1>
+  <p class="sub">Applies all 5 session changes to your catalog HTML file in one click. No Python required.</p>
+
+  <!-- What's changing -->
+  <div class="card">
+    <h2><span class="badge gold">5</span> Changes in this patch</h2>
+    <div class="steps">
+      <div class="step"><span class="snum">1</span><div><strong>Width &amp; Length → JobTread custom fields</strong> — dimensions selected during product browsing are now pushed to the "Width" and "Length" custom fields on each cost item in the job budget.</div></div>
+      <div class="step"><span class="snum">2</span><div><strong>Customer email/phone not populating fix</strong> — rewrites the customer typeahead selection function to query contacts with size 30, deduplicate properly (primary contact first), and match <code>cell</code> / <code>mobile</code> field names in addition to <code>phone</code>. Adds raw JSON logging so you can see exactly what fields come back from JobTread.</div></div>
+      <div class="step"><span class="snum">3</span><div><strong>MSRP pricing + single negative discount line</strong> — all items now push at full MSRP price &amp; cost. If a discount % is selected, a single <em>"X% Discount"</em> line item is created with negative unitPrice and unitCost, clearly showing the discount in the job budget.</div></div>
+      <div class="step"><span class="snum">4</span><div><strong>Skip blank sketch upload</strong> — adds a pixel-level check before uploading the sketch pad. If nothing has been drawn (all pixels match the dark background), the file upload is skipped entirely.</div></div>
+      <div class="step"><span class="snum">5</span><div><strong>Screen Viewer card</strong> — a new card appears right after the sketch pad (when items are selected) with a gold button linking to <a href="https://www.myscreenviewer.com" target="_blank">www.myscreenviewer.com</a> so reps can share their screen with the customer.</div></div>
+    </div>
+  </div>
+
+  <!-- Drop zone -->
+  <div id="dropzone" onclick="document.getElementById('fileInput').click()">
+    <div class="icon">📂</div>
+    <div class="title">Drop your <code>shade_doctor_catalog.html</code> here</div>
+    <div class="hint">or click to browse — file stays on your device, nothing is uploaded</div>
+  </div>
+  <input type="file" id="fileInput" accept=".html,.htm" />
+
+  <!-- Patch status list -->
+  <div class="card">
+    <h2><span class="badge" id="statusBadge">9</span> Patches</h2>
+    <div class="patch-list" id="patchList"></div>
+    <div class="actions">
+      <button class="btn btn-primary" id="applyBtn" disabled onclick="applyPatches()">⚡ Apply All Patches</button>
+      <button class="btn btn-dl" id="dlBtn" disabled onclick="downloadResult()">⬇ Download Patched File</button>
+      <button class="btn btn-secondary" id="resetBtn" onclick="resetTool()" style="display:none">↺ Start Over</button>
+    </div>
+    <div id="summaryBar"></div>
+    <div id="log"></div>
+  </div>
+
+</div>
+
+<script>
+// ── Patch definitions ─────────────────────────────────────────────────────
+// Each patch: { id, label, type, find, replace }
+// type "simple" = plain string replace (first occurrence)
+// type "last"   = replace last occurrence
+// type "insert_after" = insert replace string after find string (no removal)
+// type "complex" = handled by special case function
+
+const PATCHES = [
+
+  // ── 1a: capture dims in toggleAdd ──
+  {
+    id: "1a", label: "Capture width/height in toggleAdd()", type: "simple",
+    find: `selections.set(sku, {item, qty:1, fabric: _pf.fabric || '', fabricCustom: _pf.fabricCustom || ''});`,
+    replace: `selections.set(sku, {item, qty:1, fabric: _pf.fabric || '', fabricCustom: _pf.fabricCustom || '',\n    width: dimSel.width || '', height: dimSel.height || ''});`
+  },
+
+  // ── 1b: replace fabric CF block with combined dims+fabric ──
+  {
+    id: "1b", label: "Dims + Fabric combined CF block in pushToJobTread()", type: "simple",
+    find: `    // Set fabric color custom fields directly (bypasses buildCF filter for cost items)\n    if (selFabricVal) {\n      const isCustomFabric = selFabricVal === 'Custom \u2013 See Additional Details';\n      const fabricCFDirect = {};\n      fabricCFDirect['Fabric Color'] = isCustomFabric ? 'Custom' : selFabricVal;\n      if (isCustomFabric && selFabricCustomVal) fabricCFDirect['Custom Fabric Color'] = selFabricCustomVal;\n      costItemInput.customFieldValues = fabricCFDirect;\n      console.log('[SD] Cost item fabric CF:', fabricCFDirect, 'for sku:', sku);\n    }`,
+    replace: `    // Set custom fields: fabric color + width/length dimensions\n    const selWidth = selEntry.width || '';\n    const selHeight = selEntry.height || '';\n    const dimCF = {};\n    if (selWidth)  dimCF['Width']  = selWidth;\n    if (selHeight) dimCF['Length'] = selHeight;\n    if (selFabricVal) {\n      const isCustomFabric = selFabricVal === 'Custom \u2013 See Additional Details';\n      dimCF['Fabric Color'] = isCustomFabric ? 'Custom' : selFabricVal;\n      if (isCustomFabric && selFabricCustomVal) dimCF['Custom Fabric Color'] = selFabricCustomVal;\n    }\n    if (Object.keys(dimCF).length) {\n      costItemInput.customFieldValues = dimCF;\n      console.log('[SD] Cost item CFs:', dimCF, 'for sku:', sku);\n    }`
+  },
+
+  // ── 2: skCustSelect rewrite ──
+  {
+    id: "2",
+    label: "skCustSelect() — email/phone fix (removes resolveOrgId, adds cell/mobile, size 30, raw logging)",
+    type: "simple",
+    find: `async function skCustSelect(idx) {\n  const acc = _custSearchResults[idx];\n  if (!acc) return;\n\n  // Populate name immediately\n  document.getElementById('custName').value = acc.name;\n  document.getElementById('custDropdown').style.display = 'none';\n  _custSearchResults = [];\n\n  // Show loading state on email field while we fetch details\n  const emailEl = document.getElementById('custEmail');\n  const phoneEl = document.getElementById('custPhone');\n  emailEl.placeholder = 'Loading\u2026';\n  phoneEl.placeholder = 'Loading\u2026';\n\n  // Fetch full customer details in a separate focused query\n  try {\n    await resolveOrgId();\n    const detail = await paveCall({\n      account: {\n        $: { id: acc.id },\n        id: {},\n        name: {},\n        customFieldValues: {\n          $: { size: 20 },\n          nodes: { customField: { name: {}, type: {} }, value: {} }\n        },\n        primaryContact: {\n          id: {},\n          name: {},\n          customFieldValues: {\n            $: { size: 20 },\n            nodes: { customField: { name: {}, type: {} }, value: {} }\n          }\n        },\n        contacts: {\n          $: { size: 5 },\n          nodes: {\n            id: {},\n            name: {},\n            customFieldValues: {\n              $: { size: 20 },\n              nodes: { customField: { name: {}, type: {} }, value: {} }\n            }\n          }\n        },\n        locations: {\n          $: { size: 3 },\n          nodes: { id: {}, name: {}, address: {} }\n        }\n      }\n    });\n\n    const fullAcc = detail.account;\n\n    function extractFields(cfNodes) {\n      let email = '', phone = '', branch = '';\n      if (!cfNodes) return { email, phone, branch };\n      cfNodes.forEach(cf => {\n        const fieldName = (cf.customField?.name || '').toLowerCase();\n        const fieldType = (cf.customField?.type || '').toLowerCase();\n        const val = cf.value || '';\n        if (fieldType === 'emailaddress' || fieldName.includes('email')) { if (!email) email = val; }\n        if (fieldType === 'phonenumber' || fieldName.includes('phone'))  { if (!phone) phone = val; }\n        if (fieldName === 'branch') branch = val;\n      });\n      return { email, phone, branch };\n    }\n\n    let { email, phone, branch } = extractFields(fullAcc.customFieldValues?.nodes);\n\n    if ((!email || !phone) && fullAcc.primaryContact) {\n      const fp = extractFields(fullAcc.primaryContact.customFieldValues?.nodes);\n      if (!email && fp.email) email = fp.email;\n      if (!phone && fp.phone) phone = fp.phone;\n    }\n\n    if ((!email || !phone) && fullAcc.contacts?.nodes?.length) {\n      for (const contact of fullAcc.contacts.nodes) {\n        const fc = extractFields(contact.customFieldValues?.nodes);\n        if (!email && fc.email) email = fc.email;\n        if (!phone && fc.phone) phone = fc.phone;\n      }\n    }\n\n    console.log('[SD] Customer detail -> email:', email, 'phone:', phone, 'branch:', branch);\n\n    emailEl.placeholder = 'jane@example.com';\n    phoneEl.placeholder = '(555) 000-0000';\n    if (email) emailEl.value = email;\n    if (phone) phoneEl.value = phone;\n\n    // Populate branch dropdown\n    if (branch) {\n      const branchSel = document.getElementById('custBranch');\n      if (branchSel) {\n        for (const opt of branchSel.options) {\n          if (opt.value.toLowerCase() === branch.toLowerCase()) { branchSel.value = opt.value; break; }\n        }\n      }\n    }\n\n    // Populate address from first location\n    const loc = fullAcc.locations?.nodes?.[0];\n    if (loc?.address) {\n      const parts = loc.address.split(',').map(s => s.trim()).filter(Boolean);\n      if (parts[0]) document.getElementById('custStreet').value = parts[0];\n      if (parts[1]) document.getElementById('custCity').value = parts[1];\n      if (parts[2]) {\n        const stateZip = parts[2].trim().split(/\\s+/);\n        if (stateZip[0]) document.getElementById('custState').value = stateZip[0];\n        if (stateZip[1]) document.getElementById('custZip').value = stateZip[1];\n      }\n    }\n\n    // Store JT IDs\n    customer.jtAccountId = fullAcc.id;\n    if (loc?.id) customer.jtLocationId = loc.id;\n\n  } catch(err) {\n    console.warn('[SD] Customer detail fetch failed:', err.message);\n    emailEl.placeholder = 'jane@example.com';\n    phoneEl.placeholder = '(555) 000-0000';\n  }\n}`,
+    replace: `async function skCustSelect(idx) {\n  const acc = _custSearchResults[idx];\n  if (!acc) return;\n\n  document.getElementById('custName').value = acc.name;\n  document.getElementById('custDropdown').style.display = 'none';\n  _custSearchResults = [];\n\n  const emailEl = document.getElementById('custEmail');\n  const phoneEl = document.getElementById('custPhone');\n  emailEl.placeholder = 'Loading\u2026';\n  phoneEl.placeholder = 'Loading\u2026';\n\n  try {\n    const detail = await paveCall({\n      account: {\n        $: { id: acc.id },\n        id: {},\n        name: {},\n        primaryContact: {\n          id: {},\n          name: {},\n          customFieldValues: {\n            $: { size: 30 },\n            nodes: { customField: { name: {}, type: {} }, value: {} }\n          }\n        },\n        contacts: {\n          $: { size: 10 },\n          nodes: {\n            id: {},\n            name: {},\n            customFieldValues: {\n              $: { size: 30 },\n              nodes: { customField: { name: {}, type: {} }, value: {} }\n            }\n          }\n        },\n        customFieldValues: {\n          $: { size: 30 },\n          nodes: { customField: { name: {}, type: {} }, value: {} }\n        },\n        locations: {\n          $: { size: 3 },\n          nodes: { id: {}, name: {}, address: {} }\n        }\n      }\n    });\n\n    const fullAcc = detail.account;\n    console.log('[SD] Raw account detail:', JSON.stringify(fullAcc, null, 2));\n\n    function extractFields(cfNodes) {\n      let email = '', phone = '', branch = '';\n      if (!cfNodes || !cfNodes.length) return { email, phone, branch };\n      for (const cf of cfNodes) {\n        const type = (cf.customField?.type || '').toLowerCase();\n        const name = (cf.customField?.name || '').toLowerCase();\n        const val  = (cf.value || '').trim();\n        if (!val) continue;\n        if (!email  && (type === 'emailaddress' || name.includes('email')))        email  = val;\n        if (!phone  && (type === 'phonenumber'  || name.includes('phone') || name.includes('cell') || name.includes('mobile'))) phone = val;\n        if (!branch && name === 'branch')                                           branch = val;\n      }\n      return { email, phone, branch };\n    }\n\n    const allContacts = [];\n    if (fullAcc.primaryContact) allContacts.push(fullAcc.primaryContact);\n    if (fullAcc.contacts?.nodes) {\n      for (const c of fullAcc.contacts.nodes) {\n        if (!allContacts.find(x => x.id === c.id)) allContacts.push(c);\n      }\n    }\n\n    const acctFields = extractFields(fullAcc.customFieldValues?.nodes);\n    let email  = acctFields.email;\n    let phone  = acctFields.phone;\n    let branch = acctFields.branch;\n\n    for (const contact of allContacts) {\n      const cf = extractFields(contact.customFieldValues?.nodes);\n      if (!email  && cf.email)  email  = cf.email;\n      if (!phone  && cf.phone)  phone  = cf.phone;\n      if (!branch && cf.branch) branch = cf.branch;\n      if (email && phone && branch) break;\n    }\n\n    console.log('[SD] Resolved -> email:', email, '| phone:', phone, '| branch:', branch);\n\n    emailEl.placeholder = 'jane@example.com';\n    phoneEl.placeholder = '(555) 000-0000';\n    if (email) emailEl.value = email;\n    if (phone) phoneEl.value = phone;\n\n    if (branch) {\n      const branchSel = document.getElementById('custBranch');\n      if (branchSel) {\n        for (const opt of branchSel.options) {\n          if (opt.value.toLowerCase() === branch.toLowerCase()) { branchSel.value = opt.value; break; }\n        }\n      }\n    }\n\n    const loc = fullAcc.locations?.nodes?.[0];\n    if (loc?.address) {\n      const parts = loc.address.split(',').map(s => s.trim()).filter(Boolean);\n      if (parts[0]) document.getElementById('custStreet').value = parts[0];\n      if (parts[1]) document.getElementById('custCity').value   = parts[1];\n      if (parts[2]) {\n        const stateZip = parts[2].trim().split(/\\s+/);\n        if (stateZip[0]) document.getElementById('custState').value = stateZip[0];\n        if (stateZip[1]) document.getElementById('custZip').value   = stateZip[1];\n      }\n    }\n\n    customer.jtAccountId = fullAcc.id;\n    if (loc?.id) customer.jtLocationId = loc.id;\n\n  } catch(err) {\n    console.error('[SD] Customer detail fetch failed:', err.message, err);\n    emailEl.placeholder = 'jane@example.com';\n    phoneEl.placeholder = '(555) 000-0000';\n  }\n}`
+  },
+
+  // ── 3a: MSRP in catalog loop ──
+  {
+    id: "3a", label: "MSRP pricing — catalog items loop", type: "simple",
+    find: `    const discountedPrice = item.price * (1 - globalDisc / 100);\n\n    // Search org catalog for this item`,
+    replace: `    const discountedPrice = item.price; // always push at MSRP; discount handled as separate line item\n\n    // Search org catalog for this item`
+  },
+
+  // ── 3b: MSRP in custom items loop ──
+  {
+    id: "3b", label: "MSRP pricing — custom (one-off) items loop", type: "simple",
+    find: `      const discountedPrice = item.price * (1 - globalDisc / 100);\n      const ciInput`,
+    replace: `      const discountedPrice = item.price; // always push at MSRP; discount handled as separate line item\n      const ciInput`
+  },
+
+  // ── 3c: discount line item at end of pushToJobTread ──
+  {
+    id: "3c", label: "Negative discount line item added after all items push", type: "last",
+    find: `  return jobUrl || null;\n}`,
+    replace: `  // Add a single discount line item if a discount is applied\n  if (globalDisc > 0) {\n    const allItems = [\n      ...[...selections.values()].map(s => ({ price: s.item.price, qty: s.qty, cost: s.item.cost })),\n      ...customItems.map(i => ({ price: i.price, qty: 1, cost: i.cost }))\n    ];\n    const msrpTotal      = allItems.reduce((s, i) => s + i.price * i.qty, 0);\n    const msrpCostTotal  = allItems.reduce((s, i) => s + i.cost  * i.qty, 0);\n    const discountPrice  = -(msrpTotal     * globalDisc / 100);\n    const discountCost   = -(msrpCostTotal * globalDisc / 100);\n\n    try {\n      await paveCall({\n        createCostItem: {\n          $: {\n            jobId,\n            costCodeId: COST_CODE_ID,\n            costTypeId: COST_TYPE_ID,\n            name: globalDisc + '% Discount',\n            quantity: 1,\n            unitCost:  discountCost,\n            unitPrice: discountPrice,\n            isTaxable: false\n          },\n          createdCostItem: { id: {} }\n        }\n      });\n      console.log('[SD] Discount line created: price', discountPrice, 'cost', discountCost);\n    } catch(e) {\n      console.warn('[SD] Discount line creation failed:', e.message);\n    }\n  }\n\n  return jobUrl || null;\n}`
+  },
+
+  // ── 4a: skHasContent helper ──
+  {
+    id: "4a", label: "skHasContent() helper function added after skClear()", type: "simple",
+    find: `function skClear() {\n  skSaveHistory();\n  const ctx = skCtx();\n  ctx.fillStyle = '#1a1a1a';\n  ctx.fillRect(0, 0, skCanvas().width, skCanvas().height);\n}`,
+    replace: `function skClear() {\n  skSaveHistory();\n  const ctx = skCtx();\n  ctx.fillStyle = '#1a1a1a';\n  ctx.fillRect(0, 0, skCanvas().width, skCanvas().height);\n}\n\n// Returns true if the canvas has any pixels that differ from the blank background (#1a1a1a)\nfunction skHasContent(canvas) {\n  try {\n    const ctx = canvas.getContext('2d');\n    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);\n    for (let i = 0; i < data.length; i += 4) {\n      const r = data[i], g = data[i + 1], b = data[i + 2];\n      if (Math.abs(r - 26) > 8 || Math.abs(g - 26) > 8 || Math.abs(b - 26) > 8) return true;\n    }\n    return false;\n  } catch(e) {\n    console.warn('[SD] skHasContent check failed:', e.message);\n    return false;\n  }\n}`
+  },
+
+  // ── 4b: blank canvas guard ──
+  {
+    id: "4b", label: "Blank canvas guard before sketch upload in pushToJobTread()", type: "simple",
+    find: `  // Auto-capture sketch if canvas has content and wasn't manually saved\n  if (!customer.sketchDataUrl) {\n    const canvas = document.getElementById('sketchCanvas');\n    if (canvas && canvas.width > 0) {\n      customer.sketchDataUrl = canvas.toDataURL('image/png');\n      console.log('[SD] Auto-captured sketch on submit, size:', customer.sketchDataUrl.length);\n    }\n  }`,
+    replace: `  // Auto-capture sketch only if something was actually drawn on the canvas\n  if (!customer.sketchDataUrl) {\n    const canvas = document.getElementById('sketchCanvas');\n    if (canvas && canvas.width > 0 && skHasContent(canvas)) {\n      customer.sketchDataUrl = canvas.toDataURL('image/png');\n      console.log('[SD] Auto-captured sketch on submit, size:', customer.sketchDataUrl.length);\n    } else {\n      console.log('[SD] Sketch pad is blank \u2014 skipping file upload');\n    }\n  }`
+  },
+
+  // ── 5a: Screen Viewer HTML card ──
+  {
+    id: "5a", label: "Screen Viewer card HTML (inserted before One-Off Item card)", type: "simple",
+    find: `    <!-- Custom One-Off Item -->\n    <div class="card" id="sCustomItem" style="display:none">`,
+    replace: `    <!-- Screen Viewer -->\n    <div class="card" id="sScreenViewer" style="display:none">\n      <div class="card-hd">\n        <div class="step-badge">\uD83D\uDCFA</div>\n        <h2>Screen Viewer</h2>\n        <span style="font-size:.75rem;color:var(--muted);margin-left:8px">Share your screen with the customer</span>\n      </div>\n      <div class="card-bd" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">\n        <a href="https://www.myscreenviewer.com" target="_blank" rel="noopener noreferrer"\n          style="display:inline-flex;align-items:center;gap:10px;background:var(--accent);color:#111;font-family:'DM Sans',sans-serif;font-size:.92rem;font-weight:800;padding:13px 28px;border-radius:var(--radius-sm);text-decoration:none;letter-spacing:.03em;transition:all .15s;box-shadow:0 4px 16px rgba(232,196,42,.3)"\n          onmouseover="this.style.background='#f0cc30';this.style.boxShadow='0 6px 20px rgba(232,196,42,.5)'"\n          onmouseout="this.style.background='var(--accent)';this.style.boxShadow='0 4px 16px rgba(232,196,42,.3)'">\n          \uD83D\uDCFA Open Screen Viewer\n        </a>\n        <span style="font-size:.8rem;color:var(--muted)">Opens <strong style="color:var(--white)">www.myscreenviewer.com</strong> in a new tab so you can share your screen with the customer during the sales visit.</span>\n      </div>\n    </div>\n\n    <!-- Custom One-Off Item -->\n    <div class="card" id="sCustomItem" style="display:none">`
+  },
+
+  // ── 5b: showSketchPad reveals Screen Viewer ──
+  {
+    id: "5b", label: "showSketchPad() — also reveals sScreenViewer", type: "simple",
+    find: `function showSketchPad() {\n  const sk = document.getElementById('sSketch');\n  if (sk.style.display === 'none' || !sk.style.display) {\n    sk.style.display = '';\n    skInit();\n    scroll('sSketch');\n  }\n}`,
+    replace: `function showSketchPad() {\n  const sk = document.getElementById('sSketch');\n  if (sk.style.display === 'none' || !sk.style.display) {\n    sk.style.display = '';\n    skInit();\n    const sv = document.getElementById('sScreenViewer');\n    if (sv) sv.style.display = '';\n    scroll('sSketch');\n  }\n}`
+  },
+
+  // ── 5c: pickCustomCat hide list ──
+  {
+    id: "5c", label: "pickCustomCat() hide list includes sScreenViewer", type: "simple",
+    find: `  ['s2','sW','sH','s3','sSketch'].forEach(id => {`,
+    replace: `  ['s2','sW','sH','s3','sSketch','sScreenViewer'].forEach(id => {`
+  },
+
+  // ── 5d: resetAll expanded ──
+  {
+    id: "5d", label: "resetAll() hides sSketch and sScreenViewer too", type: "simple",
+    find: `  ['s2','sW','sH','s3','sCustomItem'].forEach(id => document.getElementById(id).style.display = 'none');`,
+    replace: `  ['s2','sW','sH','s3','sCustomItem','sSketch','sScreenViewer'].forEach(id => {\n    const el = document.getElementById(id);\n    if (el) el.style.display = 'none';\n  });`
+  }
+
+];
+
+// ── State ────────────────────────────────────────
+let sourceText = null;
+let patchedText = null;
+let sourceFileName = null;
+
+// ── Render patch list ────────────────────────────
+function renderPatchList(results) {
+  const list = document.getElementById('patchList');
+  list.innerHTML = PATCHES.map(p => {
+    let statusText = '—';
+    let statusClass = '';
+    if (results) {
+      const r = results.find(x => x.id === p.id);
+      if (r) {
+        statusText = r.ok ? '✅ Applied' : '❌ Not found';
+        statusClass = r.ok ? 'ok' : 'err';
+      }
+    }
+    return `<div class="patch-item">
+      <span class="pid">${p.id}</span>
+      <span class="plabel">${p.label}</span>
+      <span class="status ${statusClass}">${statusText}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('statusBadge').textContent = PATCHES.length;
+}
+
+renderPatchList(null);
+
+// ── File handling ────────────────────────────────
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) loadFile(file);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+function loadFile(file) {
+  if (!file.name.match(/\.html?$/i)) {
+    alert('Please select an HTML file.');
+    return;
+  }
+  sourceFileName = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    sourceText = e.target.result;
+    patchedText = null;
+    dropzone.innerHTML = `<div class="icon">✅</div><div class="title">${file.name}</div><div class="hint">${(file.size / 1024).toFixed(0)} KB loaded — click Apply to patch</div>`;
+    dropzone.style.borderColor = 'rgba(76,175,80,.5)';
+    dropzone.style.background = 'rgba(76,175,80,.05)';
+    document.getElementById('applyBtn').disabled = false;
+    document.getElementById('dlBtn').disabled = true;
+    document.getElementById('resetBtn').style.display = '';
+    renderPatchList(null);
+    document.getElementById('summaryBar').classList.remove('show');
+    document.getElementById('log').style.display = 'none';
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+// ── Apply patches ────────────────────────────────
+function applyPatches() {
+  if (!sourceText) return;
+
+  const logEl = document.getElementById('log');
+  logEl.innerHTML = '';
+  logEl.style.display = 'block';
+
+  function log(cls, msg) {
+    const span = document.createElement('span');
+    span.className = cls;
+    span.textContent = msg + '\n';
+    logEl.appendChild(span);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  log('hd', '── Shade Doctor Patch Tool ──────────────────\n');
+
+  let html = sourceText;
+  const results = [];
+  let okCount = 0;
+
+  for (const patch of PATCHES) {
+    let found = false;
+
+    if (patch.type === 'simple') {
+      if (html.includes(patch.find)) {
+        html = html.replace(patch.find, patch.replace);
+        found = true;
+      }
+    } else if (patch.type === 'last') {
+      const idx = html.lastIndexOf(patch.find);
+      if (idx !== -1) {
+        html = html.slice(0, idx) + patch.replace + html.slice(idx + patch.find.length);
+        found = true;
+      }
+    }
+
+    results.push({ id: patch.id, ok: found });
+    if (found) {
+      okCount++;
+      log('ok', `✅ [${patch.id}] ${patch.label}`);
+    } else {
+      log('err', `❌ [${patch.id}] NOT FOUND: ${patch.label}`);
+    }
+  }
+
+  log('inf', '\n── Done ──────────────────────────────────────');
+  log(okCount === PATCHES.length ? 'ok' : 'err',
+    `\n${okCount} / ${PATCHES.length} patches applied`);
+
+  patchedText = html;
+  renderPatchList(results);
+
+  const bar = document.getElementById('summaryBar');
+  bar.classList.add('show');
+  bar.innerHTML = `
+    <div><div class="sum-num">${okCount}/${PATCHES.length}</div><div class="sum-label">patches applied</div></div>
+    <div style="flex:1;padding-left:8px;font-size:.85rem;color:${okCount === PATCHES.length ? '#81c784' : '#ff7070'}">
+      ${okCount === PATCHES.length
+        ? '✅ All patches applied! Click Download to get your updated file.'
+        : `⚠️ ${PATCHES.length - okCount} patch(es) could not be applied — check the log above.`}
+    </div>`;
+
+  document.getElementById('dlBtn').disabled = false;
+  document.getElementById('applyBtn').disabled = true;
+}
+
+// ── Download ─────────────────────────────────────
+function downloadResult() {
+  if (!patchedText) return;
+  const outName = sourceFileName
+    ? sourceFileName.replace(/\.html?$/i, '_patched.html')
+    : 'shade_doctor_catalog_patched.html';
+  const blob = new Blob([patchedText], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = outName; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+// ── Reset ────────────────────────────────────────
+function resetTool() {
+  sourceText = null; patchedText = null; sourceFileName = null;
+  fileInput.value = '';
+  dropzone.innerHTML = `<div class="icon">📂</div><div class="title">Drop your <code>shade_doctor_catalog.html</code> here</div><div class="hint">or click to browse — file stays on your device, nothing is uploaded</div>`;
+  dropzone.style.borderColor = '';
+  dropzone.style.background = '';
+  document.getElementById('applyBtn').disabled = true;
+  document.getElementById('dlBtn').disabled = true;
+  document.getElementById('resetBtn').style.display = 'none';
+  document.getElementById('summaryBar').classList.remove('show');
+  document.getElementById('log').style.display = 'none';
+  renderPatchList(null);
+}
+</script>
+</body>
+</html>
